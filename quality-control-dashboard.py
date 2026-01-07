@@ -242,7 +242,7 @@ def main():
         st.markdown("---")
         st.subheader("🌐 Share This App")
         st.write("This app is completely free to use and share! Send the link to your colleagues:")
-        st.code("https://your-username-quality-control-dashboard.streamlit.app", language="text")
+        st.code("https://qualitycontroldashboard-eainnovation.streamlit.app", language="text")
         
         # Dependency status
         st.markdown("---")
@@ -983,4 +983,5 @@ def main():
 
 # Run the application
 if __name__ == "__main__":
+
     main()
