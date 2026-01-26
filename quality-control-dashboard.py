@@ -508,32 +508,32 @@ def generate_grr_data():
     n_parts = 10
     n_operators = 3
     n_replicates = 3
-    
+
     # Fuentes de variación (Desviaciones estándar reales)
     sigma_part = 2.0        # Variación Parte a Parte
     sigma_operator = 0.5    # Reproducibilidad (Operador)
     sigma_repeatability = 0.3 # Repetibilidad (Error del equipo)
-    
+
     parts = []
     operators = []
     measurements = []
-    
+
     # Valores verdaderos de las partes
     part_true_values = np.random.normal(50.0, sigma_part, n_parts)
-    
+
     # Sesgo por operador (constante para cada operador)
     operator_bias = np.random.normal(0, sigma_operator, n_operators)
-    
+
     for i in range(n_parts):
         for j in range(n_operators):
             for k in range(n_replicates):
                 parts.append(f"Part {i+1}")
                 operators.append(f"Op {j+1}")
-                
+
                 # Valor medido = Valor Parte + Sesgo Operador + Error Aleatorio
                 value = part_true_values[i] + operator_bias[j] + np.random.normal(0, sigma_repeatability)
                 measurements.append(value)
-                
+
     return pd.DataFrame({
         'Part': parts,
         'Operator': operators,
@@ -552,31 +552,31 @@ def calculate_anova_grr(df, part_col, operator_col, measurement_col):
     data_df = df.copy()
     data_df[measurement_col] = pd.to_numeric(data_df[measurement_col], errors='coerce')
     data_df = data_df.dropna(subset=[measurement_col])
-    
+
     # 1. Calcular Medias
     grand_mean = data_df[measurement_col].mean()
-    
+
     mean_part = data_df.groupby(part_col)[measurement_col].mean()
     mean_oper = data_df.groupby(operator_col)[measurement_col].mean()
     mean_part_oper = data_df.groupby([part_col, operator_col])[measurement_col].mean()
-    
+
     # 2. Contar niveles
     a = data_df[part_col].nunique()      # Partes
     b = data_df[operator_col].nunique()  # Operadores
     # Promedio de réplicas si no es balanceado perfectamente
     n_counts = data_df.groupby([part_col, operator_col]).size()
-    n = n_counts.mean() 
-    
+    n = n_counts.mean()
+
     # 3. Suma de Cuadrados (SS)
     # SS Total
     ss_total = np.sum((data_df[measurement_col] - grand_mean)**2)
-    
+
     # SS Part
     ss_part = b * n * np.sum((mean_part - grand_mean)**2)
-    
+
     # SS Operator
     ss_operator = a * n * np.sum((mean_oper - grand_mean)**2)
-    
+
     # SS Interaction (Part*Operator) implementation for potentially unbalanced data approximation
     # SS_Subtotals = Sum(n_ij * (Mean_ij - GrandMean)^2)
     ss_subtotals = 0
@@ -584,11 +584,11 @@ def calculate_anova_grr(df, part_col, operator_col, measurement_col):
         p, o = idx
         n_ij = n_counts.get((p,o), 0)
         ss_subtotals += n_ij * (mean_val - grand_mean)**2
-        
+
     ss_interaction = ss_subtotals - ss_part - ss_operator
     # Force positive just in case of slight numeric issues
     if ss_interaction < 0: ss_interaction = 0
-    
+
     # SS Repeatability (Error)
     ss_repeatability = 0
     # Vectorized approach for speed
@@ -596,40 +596,40 @@ def calculate_anova_grr(df, part_col, operator_col, measurement_col):
     # We can use transform to get the cell mean for each row
     cell_means = data_df.groupby([part_col, operator_col])[measurement_col].transform('mean')
     ss_repeatability = np.sum((data_df[measurement_col] - cell_means)**2)
-        
+
     # 4. Degrees of Freedom
     df_part = a - 1
     df_operator = b - 1
     df_interaction = (a - 1) * (b - 1)
     df_repeatability = a * b * (n - 1)
     df_total = (a * b * n) - 1
-    
+
     # 5. Mean Squares
     ms_part = ss_part / df_part if df_part > 0 else 0
     ms_operator = ss_operator / df_operator if df_operator > 0 else 0
     ms_interaction = ss_interaction / df_interaction if df_interaction > 0 else 0
     ms_repeatability = ss_repeatability / df_repeatability if df_repeatability > 0 else 0
-    
+
     # 6. Variance Components
     var_repeatability = ms_repeatability
-    
+
     # VarComp Interaction
     var_interaction = (ms_interaction - ms_repeatability) / n if n > 0 else 0
     if var_interaction < 0: var_interaction = 0
-    
+
     # VarComp Operator
     var_operator = (ms_operator - ms_interaction) / (a * n) if (a*n) > 0 else 0
     if var_operator < 0: var_operator = 0
-    
+
     # VarComp Part
     var_part = (ms_part - ms_interaction) / (b * n) if (b*n) > 0 else 0
     if var_part < 0: var_part = 0
-    
+
     # Totals
     var_gage_rr = var_repeatability + var_operator + var_interaction
     var_reproducibility = var_operator + var_interaction
     var_total = var_gage_rr + var_part
-    
+
     # 7. StdDev
     std_repeatability = np.sqrt(var_repeatability)
     std_operator = np.sqrt(var_operator)
@@ -638,13 +638,13 @@ def calculate_anova_grr(df, part_col, operator_col, measurement_col):
     std_reproducibility = np.sqrt(var_reproducibility)
     std_part = np.sqrt(var_part)
     std_total = np.sqrt(var_total)
-    
+
     study_var_multiplier = 6.0
-    
+
     # NDC (Minitab floors it)
     ndc = 1.41 * (std_part / std_gage_rr) if std_gage_rr > 0 else 0
     ndc_int = int(ndc)
-    
+
     # Results dictionary
     stats = {
         'VarComp': {
@@ -667,12 +667,12 @@ def calculate_anova_grr(df, part_col, operator_col, measurement_col):
         },
         'ndc': ndc_int
     }
-    
+
     # Calculate percentages
     stats['%Contribution'] = {k: 100 * (v / var_total) if var_total > 0 else 0 for k, v in stats['VarComp'].items()}
     stats['StudyVar'] = {k: v * study_var_multiplier for k, v in stats['StdDev'].items()}
     stats['%StudyVar'] = {k: 100 * (v / std_total) if std_total > 0 else 0 for k, v in stats['StdDev'].items()}
-    
+
     return {'components': stats, 'ndc': ndc_int}
 
 def create_grr_plots(df, part_col, operator_col, measurement_col, results):
@@ -681,25 +681,25 @@ def create_grr_plots(df, part_col, operator_col, measurement_col, results):
     """
     fig = plt.figure(figsize=(15, 10))
     gs = GridSpec(3, 2, figure=fig, hspace=0.4, wspace=0.3)
-    
+
     # 1. Components of Variation
     ax1 = fig.add_subplot(gs[0, 0])
     keys = ['Total Gage R&R', '  Repeatability', '  Reproducibility', 'Part-to-Part']
     labels = ['Gage R&R', 'Repeat', 'Reprod', 'Part-to-Part']
-    
+
     pct_contrib = [results['components']['%Contribution'][k] for k in keys]
     pct_study = [results['components']['%StudyVar'][k] for k in keys]
-    
+
     x = np.arange(len(keys))
     width = 0.35
-    
+
     ax1.bar(x - width/2, pct_contrib, width, label='% Contribution', color='blue')
     ax1.bar(x + width/2, pct_study, width, label='% Study Var', color='magenta')
     ax1.set_xticks(x)
     ax1.set_xticklabels(labels)
     ax1.set_title('Components of Variation')
     ax1.legend()
-    
+
     # 2. R Chart by Operator
     ax2 = fig.add_subplot(gs[0, 1])
     # ... (Simplified R chart logic for visualization)
@@ -708,36 +708,36 @@ def create_grr_plots(df, part_col, operator_col, measurement_col, results):
     r_bar = r_data[measurement_col].mean()
     # Simple limits
     ucl_r = r_bar * 2.57 # Approx for small subgroups
-    
+
     operators = df[operator_col].unique()
     x_pos = 0
     for op in operators:
         op_vals = r_data[r_data[operator_col] == op][measurement_col].values
         ax2.plot(range(x_pos, x_pos+len(op_vals)), op_vals, 'o-', label=str(op))
         x_pos += len(op_vals)
-    
+
     ax2.axhline(r_bar, color='green', label='RBar')
     ax2.axhline(ucl_r, color='red', linestyle='--', label='UCL')
     ax2.set_title(f'R Chart by {operator_col}')
-    
+
     # 3. Xbar Chart by Operator
     ax3 = fig.add_subplot(gs[1, 0])
     x_data = df.groupby([operator_col, part_col])[measurement_col].mean().reset_index()
     x_bar_bar = x_data[measurement_col].mean()
     ucl_x = x_bar_bar + (0.577 * r_bar) # Approx A2
     lcl_x = x_bar_bar - (0.577 * r_bar)
-    
+
     x_pos = 0
     for op in operators:
         op_vals = x_data[x_data[operator_col] == op][measurement_col].values
         ax3.plot(range(x_pos, x_pos+len(op_vals)), op_vals, 'o-', label=str(op))
         x_pos += len(op_vals)
-        
+
     ax3.axhline(x_bar_bar, color='green')
     ax3.axhline(ucl_x, color='red', linestyle='--')
     ax3.axhline(lcl_x, color='red', linestyle='--')
     ax3.set_title(f'Xbar Chart by {operator_col}')
-    
+
     # 4. By Part
     ax4 = fig.add_subplot(gs[1, 1])
     parts = sorted(df[part_col].unique(), key=lambda x: str(x))
@@ -746,7 +746,7 @@ def create_grr_plots(df, part_col, operator_col, measurement_col, results):
     ax4.set_xticks(range(len(parts)))
     ax4.set_xticklabels(parts, rotation=45, fontsize=8)
     ax4.set_title(f'By {part_col}')
-    
+
     # 5. By Operator
     ax5 = fig.add_subplot(gs[2, 0])
     means_oper = df.groupby(operator_col)[measurement_col].mean()
@@ -755,14 +755,14 @@ def create_grr_plots(df, part_col, operator_col, measurement_col, results):
     ax5.set_xticks(range(len(ops_sorted)))
     ax5.set_xticklabels(ops_sorted)
     ax5.set_title(f'By {operator_col}')
-    
+
     # 6. Interaction
     ax6 = fig.add_subplot(gs[2, 1])
     interaction_data = df.groupby([part_col, operator_col])[measurement_col].mean().unstack()
     interaction_data.plot(ax=ax6, marker='o')
     ax6.set_title(f'{operator_col} * {part_col} Interaction')
     ax6.legend(fontsize='small')
-    
+
     plt.tight_layout()
     return fig
 
@@ -1352,23 +1352,33 @@ def main():
         col1, col2 = st.columns(2)
 
         with col1:
-            # Calcular estadísticas para sugerir límites
-            if measurement_cols:
-                all_measurements = pd.concat([df[col] for col in measurement_cols])
-                data_mean = all_measurements.mean()
-                data_std = all_measurements.std()
+                # Calcular estadísticas para sugerir límites
+                if measurement_cols:
+                    all_measurements = pd.concat([df[col] for col in measurement_cols])
+                    data_mean = all_measurements.mean()
+                    data_std = all_measurements.std()
 
-                lsl = st.number_input("Lower Specification Limit (LSL)",
-                                     value=float(data_mean - 3*data_std))
-            else:
-                lsl = st.number_input("Lower Specification Limit (LSL)", value=0.0)
+                    lsl = st.number_input("Lower Specification Limit (LSL)",
+                                         value=float(data_mean - 3*data_std),
+                                         format="%.4f",  # <--- Muestra 4 decimales
+                                         step=0.0001)    # <--- Permite saltos de 0.0001
+                else:
+                    lsl = st.number_input("Lower Specification Limit (LSL)",
+                                         value=0.0,
+                                         format="%.4f",
+                                         step=0.0001)
 
         with col2:
-            if measurement_cols:
-                usl = st.number_input("Upper Specification Limit (USL)",
-                                     value=float(data_mean + 3*data_std))
-            else:
-                usl = st.number_input("Upper Specification Limit (USL)", value=10.0)
+                if measurement_cols:
+                    usl = st.number_input("Upper Specification Limit (USL)",
+                                         value=float(data_mean + 3*data_std),
+                                         format="%.4f",  # <--- Muestra 4 decimales
+                                         step=0.0001)    # <--- Permite saltos de 0.0001
+                else:
+                    usl = st.number_input("Upper Specification Limit (USL)",
+                                         value=10.0,
+                                         format="%.4f",
+                                         step=0.0001)
 
         # Botón para generar reporte
         if st.button("📊 Generate Sixpack Report", type="primary"):
@@ -1521,36 +1531,36 @@ def main():
     # Quality Metrics Module
     elif app_mode == "📐 Quality Metrics":
         st.markdown('<div class="section-header">📐 Quality Metrics Calculator</div>', unsafe_allow_html=True)
-        
+
         df = st.session_state.df
-        
+
         # Prepare data based on format
         if st.session_state.data_format == "Minitab":
             numeric_cols = [c for c in df.columns if c != 'Sample' and df[c].dtype in [np.float64, np.int64]]
         else:
             numeric_cols = [c for c in df.select_dtypes(include=np.number).columns if 'id' not in c.lower()]
-            
+
         if not numeric_cols:
              st.error("❌ No numeric variables available for analysis")
              return
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
             variable = st.selectbox("📊 Select Variable", numeric_cols)
             data = df[variable].dropna()
-            
+
             if len(data) > 0:
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
                 st.metric("Sample Size", len(data))
                 st.metric("Mean", f"{np.mean(data):.4f}")
                 st.metric("Standard Deviation", f"{np.std(data, ddof=1):.4f}")
                 st.markdown('</div>', unsafe_allow_html=True)
-        
+
         with col2:
             data_mean = np.mean(data)
             data_std = np.std(data, ddof=1)
-            
+
             st.markdown('<div class="metric-card">', unsafe_allow_html=True)
             lsl = st.number_input("Lower Specification Limit (LSL)", value=float(data_mean - 3*data_std))
             usl = st.number_input("Upper Specification Limit (USL)", value=float(data_mean + 3*data_std))
@@ -1560,13 +1570,13 @@ def main():
         if st.button("🚀 Calculate Quality Metrics", type="primary"):
             mean_val = np.mean(data)
             std_val = np.std(data, ddof=1)
-            
+
             # Calculate metrics
             cp = calculate_cp(usl, lsl, std_val)
             cpk = calculate_cpk(usl, lsl, mean_val, std_val)
             pp = calculate_pp(usl, lsl, std_val)
             ppk = calculate_ppk(usl, lsl, mean_val, std_val)
-            
+
             # Calculate Cmk
             subgroup_means = []
             subgroup_stds = []
@@ -1576,19 +1586,19 @@ def main():
                     subgroup = values[i:i+subgroup_size]
                     subgroup_means.append(np.mean(subgroup))
                     subgroup_stds.append(np.std(subgroup, ddof=1))
-            
+
             short_term_std = np.mean(subgroup_stds) if subgroup_stds else std_val
             cmk = calculate_cmk(usl, lsl, mean_val, short_term_std)
-            
+
             # DPMO
             defect_count = np.sum((data < lsl) | (data > usl))
             total_units = len(data)
             dpmo = calculate_dpmo(defect_count, total_units)
             sigma_level = calculate_sigma_level(dpmo)
-            
+
             # Display results
             st.subheader("📊 Quality Metrics Results")
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown('<div class="metric-card">', unsafe_allow_html=True)
@@ -1606,7 +1616,7 @@ def main():
                 st.metric("DPMO", f"{dpmo:,.0f}")
                 st.metric("Sigma Level", f"{sigma_level:.2f}")
                 st.markdown('</div>', unsafe_allow_html=True)
-                
+
             # Interpretation
             st.subheader("🎯 Interpretation")
             capability_metrics = [
@@ -1615,7 +1625,7 @@ def main():
                 ("Pp", pp, 1.33, 1.0),
                 ("Ppk", ppk, 1.33, 1.0)
             ]
-            
+
             for name, value, good, marginal in capability_metrics:
                 if value >= good:
                     st.success(f"✅ **{name}: {value:.3f}** - Good (≥ {good})")
@@ -1623,39 +1633,39 @@ def main():
                     st.warning(f"⚠️ **{name}: {value:.3f}** - Marginal (≥ {marginal})")
                 else:
                     st.error(f"❌ **{name}: {value:.3f}** - Poor (< {marginal})")
-            
+
             # Visualization
             st.subheader("📈 Distribution Analysis")
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-            
+
             # Histogram
             ax1.hist(data, bins=30, alpha=0.7, color='skyblue', edgecolor='black', density=True)
             ax1.axvline(mean_val, color='red', linestyle='dashed', linewidth=2, label=f'Mean: {mean_val:.3f}')
             ax1.axvline(usl, color='green', linestyle='dashed', linewidth=2, label=f'USL: {usl}')
             ax1.axvline(lsl, color='green', linestyle='dashed', linewidth=2, label=f'LSL: {lsl}')
-            
+
             # Normal curve
             xmin, xmax = ax1.get_xlim()
             x = np.linspace(xmin, xmax, 100)
             if HAS_SCIPY:
                 p = stats.norm.pdf(x, mean_val, std_val)
                 ax1.plot(x, p, 'r-', linewidth=2)
-                
+
             ax1.set_title(f'Distribution of {variable}')
             ax1.legend()
-            
+
             # Bar chart
             indices = ['Cp', 'Cpk', 'Pp', 'Ppk', 'Cmk']
             values = [cp, cpk, pp, ppk, cmk]
             colors = ['green' if v >= 1.33 else 'orange' if v >= 1.0 else 'red' for v in values]
-            
+
             ax2.bar(indices, values, color=colors, alpha=0.7)
             ax2.axhline(1.33, color='red', linestyle='--', label='Min Rec (1.33)')
             ax2.set_title('Capability Indices')
             ax2.legend()
-            
+
             st.pyplot(fig)
-            
+
     # Sampling Recommender (Restore original)
     elif app_mode == "🎯 Sampling Recommender":
         st.markdown('<div class="section-header">🎯 Sampling Method Recommender</div>', unsafe_allow_html=True)
@@ -1665,7 +1675,7 @@ def main():
              data_nature = st.selectbox("Data Nature", ["Continuous", "Discrete"])
         with col2:
              app_type = st.selectbox("Application", ["Process Control", "Lot Acceptance"])
-        
+
         if st.button("Get Recommendation"):
              recs = recommend_sampling_method(data_type, data_nature, app_type)
              for r in recs:
@@ -1721,11 +1731,11 @@ def main():
 
         # El resto del código SPC original...
             data = df[variable].dropna()
-            
+
             # --- BEGIN SPC LOGIC ---
             data_values = data.values
             n_subgroups = len(data_values) // subgroup_size
-            
+
             # --- Added User Control for Spec Limits ---
             st.markdown("##### 📏 Specification Limits for Control Charts")
             col_spec1, col_spec2 = st.columns(2)
@@ -1736,56 +1746,56 @@ def main():
             with col_spec2:
                 default_usl = float(np.max(data_values) * 1.1)
                 usl_spc = st.number_input("Upper Specification Limit (USL)", value=default_usl)
-            
+
             if n_subgroups < 2:
                 st.error(f"❌ Not enough data for subgrouping. Need at least {2*subgroup_size} data points.")
             else:
                 subgrouped_data = data_values[:n_subgroups * subgroup_size].reshape(n_subgroups, subgroup_size)
-                
+
                 # Calculate subgroup statistics
                 subgroup_means = np.mean(subgrouped_data, axis=1)
                 subgroup_ranges = np.ptp(subgrouped_data, axis=1)  # Peak-to-peak (range)
-                
+
                 # Calculate control limits
                 overall_mean = np.mean(subgroup_means)
                 mean_range = np.mean(subgroup_ranges)
-                
+
                 # Constants for control limits
                 a2_dict = {2: 1.880, 3: 1.023, 4: 0.729, 5: 0.577, 6: 0.483, 7: 0.419, 8: 0.373, 9: 0.337, 10: 0.308}
                 d3_dict = {2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0.076, 8: 0.136, 9: 0.184, 10: 0.223}
                 d4_dict = {2: 3.267, 3: 2.574, 4: 2.282, 5: 2.114, 6: 2.004, 7: 1.924, 8: 1.864, 9: 1.816, 10: 1.777}
-                
+
                 a2 = a2_dict.get(subgroup_size, 0.577)
                 d3 = d3_dict.get(subgroup_size, 0)
                 d4 = d4_dict.get(subgroup_size, 2.114)
-                
+
                 # Control limits
                 ucl_x = overall_mean + a2 * mean_range
                 lcl_x = overall_mean - a2 * mean_range
                 ucl_r = d4 * mean_range
                 lcl_r = d3 * mean_range
-                
+
                 # Create SPC charts
                 st.subheader(f"📈 Control Charts for {variable}")
                 fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-                
+
                 # X-bar chart
                 ax1.plot(subgroup_means, 'bo-', label='Subgroup Means', markersize=4)
                 ax1.axhline(overall_mean, color='green', linestyle='-', label=f'CL: {overall_mean:.3f}')
                 ax1.axhline(ucl_x, color='red', linestyle='--', label=f'UCL: {ucl_x:.3f}')
                 ax1.axhline(lcl_x, color='red', linestyle='--', label=f'LCL: {lcl_x:.3f}')
-                
+
                 # Plot User Defined Spec Limits
                 if lsl_spc is not None:
                     ax1.axhline(lsl_spc, color='purple', linestyle='-.', alpha=0.7, label=f'LSL: {lsl_spc:.2f}')
                 if usl_spc is not None:
                     ax1.axhline(usl_spc, color='purple', linestyle='-.', alpha=0.7, label=f'USL: {usl_spc:.2f}')
-                
+
                 ax1.set_title(f'X-bar Chart')
                 ax1.set_ylabel('Mean Value')
                 ax1.legend()
                 ax1.grid(True, alpha=0.3)
-                
+
                 # R chart
                 ax2.plot(subgroup_ranges, 'go-', label='Subgroup Ranges', markersize=4)
                 ax2.axhline(mean_range, color='green', linestyle='-', label=f'CL: {mean_range:.3f}')
@@ -1796,27 +1806,27 @@ def main():
                 ax2.set_xlabel('Subgroup Number')
                 ax2.legend()
                 ax2.grid(True, alpha=0.3)
-                
+
                 plt.tight_layout()
                 st.pyplot(fig)
 
                 # --- Process Capability from Control Chart ---
                 st.markdown("---")
                 st.subheader("📐 Process Capability from Control Chart")
-                
+
                 # Formula: Sigma (within) = R_bar / d2
                 d2_dict = {2: 1.128, 3: 1.693, 4: 2.059, 5: 2.326, 6: 2.534, 7: 2.704, 8: 2.847, 9: 2.970, 10: 3.078}
                 d2 = d2_dict.get(subgroup_size, 2.326)
-                
+
                 sigma_within = mean_range / d2
-                
+
                 # Check for Spec Limits
                 if lsl_spc is not None and usl_spc is not None:
                     cp = (usl_spc - lsl_spc) / (6 * sigma_within) if sigma_within > 0 else 0
                     cpu = (usl_spc - overall_mean) / (3 * sigma_within) if sigma_within > 0 else 0
                     cpl = (overall_mean - lsl_spc) / (3 * sigma_within) if sigma_within > 0 else 0
                     cpk = min(cpu, cpl)
-                    
+
                     col_cap1, col_cap2, col_cap3 = st.columns(3)
                     with col_cap1:
                         st.metric("Within-subgroup Std Dev", f"{sigma_within:.4f}")
@@ -1824,11 +1834,11 @@ def main():
                          st.metric("Cp", f"{cp:.3f}")
                     with col_cap3:
                          st.metric("Cpk", f"{cpk:.3f}")
-                         
+
                     # Simple Control Check: Are all points within limits?
                     points_in_control_x = np.all((subgroup_means >= lcl_x) & (subgroup_means <= ucl_x))
                     points_in_control_r = np.all((subgroup_ranges >= lcl_r) & (subgroup_ranges <= ucl_r))
-                    
+
                     if points_in_control_x and points_in_control_r:
                         st.success("✅ Process appears to be in statistical control (All points within Control Limits)")
                     else:
@@ -1839,7 +1849,7 @@ def main():
     # ==================== NEW GAGE R&R MODULE ====================
     elif app_mode == "📏 Gage R&R":
         st.markdown('<div class="section-header">📏 Gage R&R Study (Crossed)</div>', unsafe_allow_html=True)
-        
+
         st.markdown("""
         <div class="info-box">
         <h3>🎯 Assessment of Measurement System Variability</h3>
@@ -1847,35 +1857,35 @@ def main():
         <p>Required Data: Part ID, Operator ID, and Measurement Value.</p>
         </div>
         """, unsafe_allow_html=True)
-        
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
              st.subheader("🛠️ Data Setup")
              if st.button("🎲 Load Sample Gage R&R Data"):
                  st.session_state.grr_df = generate_grr_data()
                  st.success("✅ Sample Gage R&R data loaded!")
-                 
-             # Allow file upload specifically for Gage R&R if needed, 
+
+             # Allow file upload specifically for Gage R&R if needed,
              # or use main df if it has the right columns
-             
+
         if 'grr_df' in st.session_state:
             df_grr = st.session_state.grr_df
         elif 'df' in st.session_state:
             df_grr = st.session_state.df
         else:
             df_grr = None
-            
+
         if df_grr is not None:
              with col2:
                  st.subheader("📋 Dataset Preview")
                  st.dataframe(df_grr.head(), use_container_width=True)
-                 
+
              st.markdown("---")
              st.subheader("⚙️ Configuration")
-             
+
              cols = df_grr.columns.tolist()
-             
+
              c1, c2, c3 = st.columns(3)
              with c1:
                  # Try to auto-select
@@ -1887,23 +1897,23 @@ def main():
              with c3:
                  meas_default = next((c for c in cols if 'meas' in c.lower() or 'value' in c.lower() or 'x' in c.lower()), cols[2] if len(cols)>2 else cols[0])
                  meas_col = st.selectbox("Select Measurement Column", cols, index=cols.index(meas_default))
-                 
+
              if st.button("🚀 Run Gage R&R Analysis", type="primary"):
                  try:
                      # Calculate
                      results = calculate_anova_grr(df_grr, part_col, oper_col, meas_col)
-                     
+
                      # 1. Visualization
                      st.subheader("📊 Gage R&R Graphs")
                      fig = create_grr_plots(df_grr, part_col, oper_col, meas_col, results)
                      st.pyplot(fig)
-                     
+
                      # 2. Statistics Table (VarComp)
                      st.markdown("---")
                      st.subheader("📉 Gage R&R Statistics (ANOVA Method)")
-                     
+
                      vc = results['components']
-                     
+
                      # Create display dataframe
                      stats_data = {
                          'Source': ['Total Gage R&R', '  Repeatability', '  Reproducibility', '    Operator', '    Operator*Part', 'Part-to-Part', 'Total Variation'],
@@ -1912,7 +1922,7 @@ def main():
                          '% Study Var': [vc['%StudyVar'][k] for k in vc['%StudyVar']],
                          '% Contribution': [vc['%Contribution'][k] for k in vc['%Contribution']]
                      }
-                     
+
                      stats_df = pd.DataFrame(stats_data)
                      st.dataframe(stats_df.style.format({
                          'StdDev (SD)': '{:.5f}',
@@ -1920,31 +1930,31 @@ def main():
                          '% Study Var': '{:.2f}%',
                          '% Contribution': '{:.2f}%'
                      }), use_container_width=True)
-                     
+
                      # 3. NDC and Interpretation
                      st.markdown("---")
                      col_res1, col_res2 = st.columns(2)
-                     
+
                      with col_res1:
                          ndc = results['ndc']
                          st.metric("Number of Distinct Categories (NDC)", ndc)
-                         
+
                          if ndc >= 5:
                              st.success("✅ NDC ≥ 5: Measurement system is acceptable for analysis")
                          else:
                              st.error("❌ NDC < 5: Measurement system may differ only 1-4 categories ( Poor)")
-                             
+
                      with col_res2:
                          pct_grr = vc['%StudyVar']['Total Gage R&R']
                          st.metric("Total Gage R&R (% Study Var)", f"{pct_grr:.2f}%")
-                         
+
                          if pct_grr < 10:
                              st.success("✅ %GRR < 10%: Measurement system is acceptable")
                          elif pct_grr < 30:
                              st.warning("⚠️ 10% < %GRR < 30%: May be acceptable depending on application")
                          else:
                              st.error("❌ %GRR > 30%: Measurement system needs improvement")
-                             
+
                  except Exception as e:
                      st.error(f"Error during calculation: {e}")
                      st.write("Please ensure columns are correct and contain numeric data for measurements.")
@@ -1952,37 +1962,37 @@ def main():
     elif app_mode == "🔍 Defect Analysis":
         # ... [Mantener lógica original para Defect Analysis adaptada]
         st.markdown('<div class="section-header">🔍 Defect Analysis</div>', unsafe_allow_html=True)
-        
+
         df = st.session_state.df
-        
+
         # Check for numeric boolean or object 0/1 columns that could be defects
         possible_defect_cols = [c for c in df.columns if 'defect' in c.lower() or df[c].nunique() == 2]
-        
+
         selected_defect_col = None
         defect_col = None  # Initialize to prevent NameError
         is_generated = False
-        
+
         # --- Defect Generator (Always Available via Expander) ---
         with st.expander("🛠️ Defect Generator (Create Pass/Fail from limits)"):
              st.info("Generate a 'Defect' status based on Specification Limits (LSL/USL).")
-             
+
              # Locate numeric columns
              numeric_cols_gen = df.select_dtypes(include=np.number).columns.tolist()
              if 'Sample' in numeric_cols_gen: numeric_cols_gen.remove('Sample')
-             
+
              if numeric_cols_gen:
                  gen_col = st.selectbox("Select Measurement Column", numeric_cols_gen)
-                 
+
                  c1, c2 = st.columns(2)
                  mean_val = df[gen_col].mean()
                  std_val = df[gen_col].std()
-                 
+
                  with c1:
                      # Tighter limits by default (1 sigma) to ensure defects appear in demo
                      gen_lsl = st.number_input("LSL", value=float(mean_val - 1.0*std_val), key='def_lsl')
                  with c2:
                      gen_usl = st.number_input("USL", value=float(mean_val + 1.0*std_val), key='def_usl')
-                     
+
                  if st.button("Generate & Use Defect Data"):
                      # Create temporary defect column
                      df['Generated_Defect'] = ((df[gen_col] < gen_lsl) | (df[gen_col] > gen_usl)).astype(int)
@@ -2002,10 +2012,10 @@ def main():
                  selected_defect_col = 'Generated_Defect'
             else:
                  st.warning("⚠️ No obvious defect column found. Please use the generator above.")
-        
+
         if selected_defect_col:
             defect_col = selected_defect_col
-            
+
             # Ensure it's numeric 0/1 for calculation
             # If it's text (Fail/Pass), map it
             target_col = defect_col
@@ -2024,7 +2034,7 @@ def main():
             # Categorical columns for grouping
             # Expanded to include integer columns like 'Sample' or others with reasonable cardinality
             cat_cols = [c for c in df.columns if (df[c].dtype == object or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() < 100)) and c != defect_col and c != 'Generated_Defect']
-            
+
             # --- Category Simulation (Always Available via Expander if needed) ---
             with st.expander("🎲 Category Simulator (if missing Operator/Machine)"):
                 st.info("Add simulated 'Operator' and 'Machine' columns for testing Stratification.")
@@ -2036,35 +2046,35 @@ def main():
                     st.session_state.df = df
                     st.success("✅ Added 'Operator' and 'Machine' columns!")
                     st.rerun()
-            
+
             # Re-evaluate cat_cols after potential simulation
             cat_cols = [c for c in df.columns if (df[c].dtype == object or (pd.api.types.is_integer_dtype(df[c]) and df[c].nunique() < 100)) and c != defect_col and c != 'Generated_Defect']
-            
+
             if not cat_cols:
                 st.warning("⚠️ No categorical or grouping columns found (e.g. Operator, Machine).")
                 st.info("To see a Pareto chart, you need a column to group the defects by. Use the Simulator above.")
             else:
                 category = st.selectbox("Stratify Defects By", cat_cols)
-                
+
                 # Groupby
                 summary = df.groupby(category)[target_col].agg(['sum', 'count', 'mean']).reset_index()
                 summary.columns = [category, 'Defects', 'Total', 'Rate']
                 summary['Rate %'] = summary['Rate'] * 100
-                
+
                 # Pareto
                 summary = summary.sort_values('Defects', ascending=False)
                 total_defects = summary['Defects'].sum()
-                
+
                 # ALWAYS SHOW GRAPH LOGIC (Even if 0 defects)
                 summary['CumSum'] = summary['Defects'].cumsum()
                 summary['CumPerc'] = 100 * summary['CumSum'] / total_defects if total_defects > 0 else 0
-                
+
                 st.subheader("📊 Pareto Analysis")
                 fig, ax1 = plt.subplots(figsize=(10, 6))
                 ax1.bar(summary[category], summary['Defects'], color='skyblue', edgecolor='black')
                 ax1.set_ylabel('Defect Count', color='black')
                 ax1.tick_params(axis='y', labelcolor='black')
-                
+
                 if total_defects > 0:
                     ax2 = ax1.twinx()
                     ax2.plot(summary[category], summary['CumPerc'], 'bo-', linewidth=2, markersize=5)
@@ -2075,35 +2085,35 @@ def main():
                     ax2.grid(True, alpha=0.3)
                 else:
                     st.info("No defects found (Perfect Quality!). Showing empty chart.")
-                
+
                 # Rotate x labels if necessary
                 plt.setp(ax1.xaxis.get_majorticklabels(), rotation=45, ha='right')
                 plt.title(f'Pareto Chart of Defects by {category}')
                 plt.tight_layout()
-                
+
                 st.pyplot(fig)
-                
+
                 if total_defects > 0:
                     # --- Detailed Text Report (Matching Original) ---
                     st.subheader("📈 Pareto Analysis Results")
-                    
+
                     for i, row in summary.iterrows():
                         pct = (row['Defects'] / total_defects) * 100
                         st.write(f"**{i+1}. {row[category]}**: {int(row['Defects'])} defects ({pct:.1f}%), Cumulative: {row['CumPerc']:.1f}%")
-                        
+
                     # Vital Few Analysis
                     vital_few = summary[summary['CumPerc'] <= 80]
                     # If the first one is already > 80, take at least the first one
                     if vital_few.empty:
                         vital_few = summary.iloc[:1]
-                        
+
                     vital_count = len(vital_few)
                     total_cats = len(summary)
                     vital_pct = (vital_count / total_cats) * 100
                     vital_defects_pct = vital_few['CumPerc'].max()
-                    
+
                     st.subheader(f"🎯 Vital Few ({vital_pct:.1f}% of categories cause {vital_defects_pct:.0f}% of defects):")
-                    
+
                     for _, row in vital_few.iterrows():
                         pct = (row['Defects'] / total_defects) * 100
                         st.write(f"• **{row[category]}** - {int(row['Defects'])} defects ({pct:.1f}%)")
@@ -2114,46 +2124,46 @@ def main():
         st.markdown('<div class="section-header">🔬 Advanced Analytics</div>', unsafe_allow_html=True)
         df = st.session_state.df
         numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-        
+
         # Prepare numeric columns (exclude ID-like columns)
         numeric_cols = [c for c in df.select_dtypes(include=np.number).columns if 'id' not in c.lower() and 'sample' not in c.lower()]
-        
+
         if len(numeric_cols) < 1:
             st.error("❌ Not enough numeric variables for analysis")
             return
-            
+
         analysis_type = st.radio(
             "Select Analysis Type",
             ["Normality Test", "Q-Q Plot", "Correlation Analysis"]
         )
-        
+
         if analysis_type == "Normality Test":
             st.subheader("📊 Normality Test (Shapiro-Wilk)")
-            
+
             variable = st.selectbox("Select Variable", numeric_cols)
             data = df[variable].dropna()
-            
+
             if len(data) < 3:
                 st.warning("⚠️ Need at least 3 data points for Shapiro-Wilk test.")
             else:
                 if HAS_SCIPY:
                     stat, p_value = stats.shapiro(data)
-                    
+
                     st.write(f"**Variable:** {variable}")
                     st.write(f"**Statistic:** {stat:.4f}")
                     st.write(f"**P-Value:** {p_value:.4f}")
-                    
+
                     if p_value > 0.05:
                         st.success(f"✅ P-Value > 0.05: Data looks Normally Distributed (Fail to reject H0)")
                     else:
                         st.error(f"❌ P-Value < 0.05: Data does NOT look Normally Distributed (Reject H0)")
                 else:
                     st.warning("⚠️ Scipy not installed. Installing scipy is recommended for statistical tests.")
-            
+
             # Visualization
             st.subheader("📈 Distribution Visualization")
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-            
+
             # Histogram with normal curve
             ax1.hist(data, bins=20, density=True, alpha=0.7, color='skyblue', edgecolor='black')
             if HAS_SCIPY:
@@ -2166,16 +2176,16 @@ def main():
             ax1.set_ylabel('Density')
             ax1.legend()
             ax1.grid(True, alpha=0.3)
-            
+
             # Box plot
             ax2.boxplot(data)
             ax2.set_title(f'Box Plot of {variable}')
             ax2.set_ylabel(variable)
             ax2.grid(True, alpha=0.3)
-            
+
             plt.tight_layout()
             st.pyplot(fig)
-        
+
         elif analysis_type == "Q-Q Plot":
             st.subheader("📈 Q-Q Plot (Quantile-Quantile)")
             if not HAS_SCIPY:
@@ -2183,35 +2193,35 @@ def main():
             else:
                 variable = st.selectbox("📊 Select Variable for Q-Q Plot", numeric_cols)
                 data = df[variable].dropna()
-                
+
                 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
-                
+
                 # Q-Q plot
                 stats.probplot(data, dist="norm", plot=ax1)
                 ax1.set_title(f'Q-Q Plot of {variable}')
                 ax1.grid(True, alpha=0.3)
-                
+
                 # Histogram
                 ax2.hist(data, bins=20, alpha=0.7, color='lightgreen', edgecolor='black')
                 ax2.set_title(f'Distribution of {variable}')
                 ax2.set_xlabel(variable)
                 ax2.set_ylabel('Frequency')
                 ax2.grid(True, alpha=0.3)
-                
+
                 plt.tight_layout()
                 st.pyplot(fig)
-        
+
         elif analysis_type == "Correlation Analysis":
             st.subheader("🔗 Correlation Analysis")
             selected_vars = st.multiselect("📊 Select Variables for Correlation", numeric_cols, default=numeric_cols[:min(3, len(numeric_cols))])
-            
+
             if len(selected_vars) >= 2:
                 corr_matrix = df[selected_vars].corr()
-                
+
                 st.subheader("Correlation Matrix")
-                st.dataframe(corr_matrix.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1), 
+                st.dataframe(corr_matrix.style.background_gradient(cmap='coolwarm', vmin=-1, vmax=1),
                            use_container_width=True)
-                
+
                 # Correlation heatmap
                 fig, ax = plt.subplots(figsize=(10, 8))
                 im = ax.imshow(corr_matrix, cmap='coolwarm', vmin=-1, vmax=1)
@@ -2220,36 +2230,36 @@ def main():
                 ax.set_xticklabels(selected_vars, rotation=45, ha='right')
                 ax.set_yticklabels(selected_vars)
                 ax.set_title('Correlation Heatmap')
-                
+
                 # Add correlation values to heatmap
                 for i in range(len(selected_vars)):
                     for j in range(len(selected_vars)):
                         text = ax.text(j, i, f'{corr_matrix.iloc[i, j]:.2f}',
                                     ha="center", va="center", color="black", fontsize=12)
-                
+
                 plt.colorbar(im, ax=ax)
                 plt.tight_layout()
                 st.pyplot(fig)
-                
+
                 # Simple scatter plots
                 if len(selected_vars) >= 2:
                     st.subheader("📊 Scatter Plots")
                     var1 = st.selectbox("Select X-axis variable", selected_vars, index=0)
                     var2 = st.selectbox("Select Y-axis variable", selected_vars, index=1 if len(selected_vars)>1 else 0)
-                    
+
                     fig, ax = plt.subplots(figsize=(10, 6))
                     ax.scatter(df[var1], df[var2], alpha=0.6)
                     ax.set_xlabel(var1)
                     ax.set_ylabel(var2)
                     ax.set_title(f'Scatter Plot: {var1} vs {var2}')
                     ax.grid(True, alpha=0.3)
-                    
+
                     # Add correlation coefficient
                     corr_coef = df[var1].corr(df[var2])
-                    ax.text(0.05, 0.95, f'Correlation: {corr_coef:.3f}', 
+                    ax.text(0.05, 0.95, f'Correlation: {corr_coef:.3f}',
                            transform=ax.transAxes, fontsize=12, verticalalignment='top',
                            bbox=dict(boxstyle='round', facecolor='white', alpha=0.8))
-                    
+
                     plt.tight_layout()
                     st.pyplot(fig)
             else:
