@@ -1558,14 +1558,23 @@ def main():
                 st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
-            data_mean = np.mean(data)
-            data_std = np.std(data, ddof=1)
+                    data_mean = np.mean(data)
+                    data_std = np.std(data, ddof=1)
 
-            st.markdown('<div class="metric-card">', unsafe_allow_html=True)
-            lsl = st.number_input("Lower Specification Limit (LSL)", value=float(data_mean - 3*data_std))
-            usl = st.number_input("Upper Specification Limit (USL)", value=float(data_mean + 3*data_std))
-            subgroup_size = st.slider("Subgroup Size for Cmk", min_value=2, max_value=10, value=5)
-            st.markdown('</div>', unsafe_allow_html=True)
+                    st.markdown('<div class="metric-card">', unsafe_allow_html=True)
+                    # Aplicamos format y step para que coincida con la precisión de tus sensores/máquinas
+                    lsl = st.number_input("Lower Specification Limit (LSL)",
+                                         value=float(data_mean - 3*data_std),
+                                         format="%.4f",
+                                         step=0.0001)
+
+                    usl = st.number_input("Upper Specification Limit (USL)",
+                                         value=float(data_mean + 3*data_std),
+                                         format="%.4f",
+                                         step=0.0001)
+
+                    subgroup_size = st.slider("Subgroup Size for Cmk", min_value=2, max_value=10, value=5)
+                    st.markdown('</div>', unsafe_allow_html=True)
 
         if st.button("🚀 Calculate Quality Metrics", type="primary"):
             mean_val = np.mean(data)
@@ -1736,16 +1745,23 @@ def main():
             data_values = data.values
             n_subgroups = len(data_values) // subgroup_size
 
-            # --- Added User Control for Spec Limits ---
+# --- Added User Control for Spec Limits ---
             st.markdown("##### 📏 Specification Limits for Control Charts")
             col_spec1, col_spec2 = st.columns(2)
             with col_spec1:
                 # Default to a reasonable range or 0
                 default_lsl = float(np.min(data_values) * 0.9)
-                lsl_spc = st.number_input("Lower Specification Limit (LSL)", value=default_lsl)
+                lsl_spc = st.number_input("Lower Specification Limit (LSL)",
+                                         value=default_lsl,
+                                         format="%.4f", # Muestra 4 decimales
+                                         step=0.0001)   # Permite ajuste fino
             with col_spec2:
+                # Default to a reasonable range or 1.1
                 default_usl = float(np.max(data_values) * 1.1)
-                usl_spc = st.number_input("Upper Specification Limit (USL)", value=default_usl)
+                usl_spc = st.number_input("Upper Specification Limit (USL)",
+                                         value=default_usl,
+                                         format="%.4f", # Muestra 4 decimales
+                                         step=0.0001)   # Permite ajuste fino
 
             if n_subgroups < 2:
                 st.error(f"❌ Not enough data for subgrouping. Need at least {2*subgroup_size} data points.")
