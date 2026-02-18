@@ -1360,25 +1360,25 @@ def main():
 
                     lsl = st.number_input("Lower Specification Limit (LSL)",
                                          value=float(data_mean - 3*data_std),
-                                         format="%.4f",  # <--- Muestra 4 decimales
-                                         step=0.0001)    # <--- Permite saltos de 0.0001
+                                         format="%.6f",  # <--- Muestra 4 decimales
+                                         step=0.000001)    # <--- Permite saltos de 0.0001
                 else:
                     lsl = st.number_input("Lower Specification Limit (LSL)",
                                          value=0.0,
-                                         format="%.4f",
-                                         step=0.0001)
+                                         format="%.6f",
+                                         step=0.000001)
 
         with col2:
                 if measurement_cols:
                     usl = st.number_input("Upper Specification Limit (USL)",
                                          value=float(data_mean + 3*data_std),
-                                         format="%.4f",  # <--- Muestra 4 decimales
-                                         step=0.0001)    # <--- Permite saltos de 0.0001
+                                         format="%.6f",  # <--- Muestra 4 decimales
+                                         step=0.000001)    # <--- Permite saltos de 0.0001
                 else:
                     usl = st.number_input("Upper Specification Limit (USL)",
                                          value=10.0,
-                                         format="%.4f",
-                                         step=0.0001)
+                                         format="%.6f",
+                                         step=0.000001)
 
         # Botón para generar reporte
         if st.button("📊 Generate Sixpack Report", type="primary"):
@@ -1565,13 +1565,13 @@ def main():
                     # Aplicamos format y step para que coincida con la precisión de tus sensores/máquinas
                     lsl = st.number_input("Lower Specification Limit (LSL)",
                                          value=float(data_mean - 3*data_std),
-                                         format="%.4f",
-                                         step=0.0001)
+                                         format="%.6f",
+                                         step=0.000001)
 
                     usl = st.number_input("Upper Specification Limit (USL)",
                                          value=float(data_mean + 3*data_std),
-                                         format="%.4f",
-                                         step=0.0001)
+                                         format="%.6f",
+                                         step=0.000001)
 
                     subgroup_size = st.slider("Subgroup Size for Cmk", min_value=2, max_value=10, value=5)
                     st.markdown('</div>', unsafe_allow_html=True)
@@ -1753,15 +1753,15 @@ def main():
                 default_lsl = float(np.min(data_values) * 0.9)
                 lsl_spc = st.number_input("Lower Specification Limit (LSL)",
                                          value=default_lsl,
-                                         format="%.4f", # Muestra 4 decimales
-                                         step=0.0001)   # Permite ajuste fino
+                                         format="%.6f", # Muestra 4 decimales
+                                         step=0.000001)   # Permite ajuste fino
             with col_spec2:
                 # Default to a reasonable range or 1.1
                 default_usl = float(np.max(data_values) * 1.1)
                 usl_spc = st.number_input("Upper Specification Limit (USL)",
                                          value=default_usl,
-                                         format="%.4f", # Muestra 4 decimales
-                                         step=0.0001)   # Permite ajuste fino
+                                         format="%.6f", # Muestra 4 decimales
+                                         step=0.000001)   # Permite ajuste fino
 
             if n_subgroups < 2:
                 st.error(f"❌ Not enough data for subgrouping. Need at least {2*subgroup_size} data points.")
